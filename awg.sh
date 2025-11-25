@@ -254,10 +254,49 @@ function installAmneziaWG() {
 	# Run setup questions first
 	installQuestions
 
-	# Check if go is installed
-	if ! command -v go &> /dev/null; then
-		echo "Go is not installed. Aborting."
-		exit 1
+	# Check if binaries are already installed
+	if [ -f "/usr/bin/amneziawg-go" ] && command -v awg &> /dev/null; then
+		INSTALL_BUILD_DEPS=false
+	else
+		INSTALL_BUILD_DEPS=true
+	fi
+
+	# Install dependencies
+	if [[ ${OS} == 'ubuntu' ]]; then
+		apt update
+		if [ "$INSTALL_BUILD_DEPS" = true ]; then
+			apt install -y qrencode iptables git g++ gcc make golang
+		else
+			apt install -y qrencode iptables
+		fi
+	elif [[ ${OS} == 'debian' ]]; then
+		apt update
+		if [ "$INSTALL_BUILD_DEPS" = true ]; then
+			apt install -y qrencode iptables git g++ gcc make golang
+		else
+			apt install -y qrencode iptables
+		fi
+	elif [[ ${OS} == 'fedora' ]]; then
+		if [ "$INSTALL_BUILD_DEPS" = true ]; then
+			dnf install -y qrencode iptables git g++ gcc make golang
+		else
+			dnf install -y qrencode iptables
+		fi
+	elif [[ ${OS} == 'centos' ]] || [[ ${OS} == 'almalinux' ]] || [[ ${OS} == 'rocky' ]]; then
+		dnf install -y epel-release
+		if [ "$INSTALL_BUILD_DEPS" = true ]; then
+			dnf install -y qrencode iptables git g++ gcc make golang
+		else
+			dnf install -y qrencode iptables
+		fi
+	fi
+
+	if [ "$INSTALL_BUILD_DEPS" = true ]; then
+		# Check if go is installed
+		if ! command -v go &> /dev/null; then
+			echo "Go is not installed. Aborting."
+			exit 1
+		fi
 	fi
 
 	# Check if amneziawg-go binary is in /usr/bin
@@ -280,20 +319,6 @@ function installAmneziaWG() {
 		make install
 		cd ../..
 		rm -rf amneziawg-tools
-	fi
-
-	# Install dependencies
-	if [[ ${OS} == 'ubuntu' ]]; then
-		apt update
-		apt install -y qrencode iptables
-	elif [[ ${OS} == 'debian' ]]; then
-		apt update
-		apt install -y qrencode iptables
-	elif [[ ${OS} == 'fedora' ]]; then
-		dnf install -y qrencode iptables
-	elif [[ ${OS} == 'centos' ]] || [[ ${OS} == 'almalinux' ]] || [[ ${OS} == 'rocky' ]]; then
-		dnf install -y epel-release
-		dnf install -y qrencode iptables
 	fi
 
 	SERVER_AWG_CONF="${AMNEZIAWG_DIR}/${SERVER_AWG_NIC}.conf"
@@ -564,9 +589,9 @@ function uninstallAmneziaWG() {
 		# Remove config files
 		rm -rf ${AMNEZIAWG_DIR}/*
 
-		rm -f /usr/bin/amneziawg-go
-		rm -f /usr/bin/awg
-		rm -f /usr/bin/awg-quick
+		rm -f /usr/bin/amneziawg-go /usr/local/bin/amneziawg-go
+		rm -f /usr/bin/awg /usr/local/bin/awg
+		rm -f /usr/bin/awg-quick /usr/local/bin/awg-quick
 
 		# Check if AmneziaWG is running
 		systemctl is-active --quiet "awg-quick@${SERVER_AWG_NIC}"
