@@ -1,7 +1,11 @@
 #!/bin/bash
 
-# AmneziaWG server installer
+# AmneziaWG server installer (Userspace only)
 # https://github.com/zihaofu245/amneziawg-install
+#
+# This script installs AmneziaWG using the userspace Go implementation (amneziawg-go).
+# It does NOT install or use any kernel module (e.g., /usr/src/amneziawg-*).
+# The userspace implementation works without kernel dependencies and is suitable for containers.
 
 RED='\033[0;31m'
 ORANGE='\033[0;33m'
@@ -23,14 +27,8 @@ function checkVirt() {
 		exit 1
 	fi
 
-	if [ "$(systemd-detect-virt)" == "lxc" ]; then
-		echo "LXC is not supported (yet)."
-		echo "WireGuard can technically run in an LXC container,"
-		echo "but the kernel module has to be installed on the host,"
-		echo "the container has to be run with some specific parameters"
-		echo "and only the tools need to be installed in the container."
-		exit 1
-	fi
+	# LXC is supported with the userspace amneziawg-go implementation
+	# No kernel module is required
 }
 
 function checkOS() {
@@ -299,9 +297,10 @@ function installAmneziaWG() {
 		fi
 	fi
 
-	# Check if amneziawg-go binary is in /usr/bin
+	# Check if amneziawg-go userspace binary is in /usr/bin
+	# This is the userspace Go implementation, NOT a kernel module
 	if [ ! -f "/usr/bin/amneziawg-go" ]; then
-		echo "amneziawg-go not found. Building from source..."
+		echo "amneziawg-go userspace implementation not found. Building from source..."
 		git clone https://github.com/amnezia-vpn/amneziawg-go.git
 		cd amneziawg-go
 		make
@@ -310,7 +309,7 @@ function installAmneziaWG() {
 		rm -rf amneziawg-go
 	fi
 
-	# Check if awg is installed
+	# Check if awg tools are installed (command line utilities)
 	if ! command -v awg &> /dev/null; then
 		echo "awg tools not found. Building from source..."
 		git clone https://github.com/amnezia-vpn/amneziawg-tools.git
