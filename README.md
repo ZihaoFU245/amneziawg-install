@@ -22,9 +22,9 @@ If the binaries are not already present, the script will download and build:
 4. iptables
 
 ## Process
-if binaries are not in /usr/bin, it will clone the official repo 
-and build it from source.
-If VPS does not have resource to build, you can place your binary 
+If the binaries are not in /usr/bin, it will clone the official repo 
+and build them from source.
+If the VPS does not have the resources to build, you can place your binary 
 to /usr/bin and run the script, it will not build again.
 
 > Binary name must align amneziawg-go, awg-quick
