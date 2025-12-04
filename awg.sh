@@ -62,32 +62,11 @@ function checkOS() {
 	fi
 }
 
-function getHomeDirForClient() {
-	local CLIENT_NAME=$1
-
-	if [ -z "${CLIENT_NAME}" ]; then
-		echo "Error: getHomeDirForClient() requires a client name as argument"
-		exit 1
+function ensureConfigsDir() {
+	if [ ! -d "./configs" ]; then
+		mkdir -p ./configs
+		echo "Created ./configs directory"
 	fi
-
-	# Home directory of the user, where the client configuration will be written
-	if [ -e "/home/${CLIENT_NAME}" ]; then
-		# if $1 is a user name
-		HOME_DIR="/home/${CLIENT_NAME}"
-	elif [ "${SUDO_USER}" ]; then
-		# if not, use SUDO_USER
-		if [ "${SUDO_USER}" == "root" ]; then
-			# If running sudo as root
-			HOME_DIR="/root"
-		else
-			HOME_DIR="/home/${SUDO_USER}"
-		fi
-	else
-		# if not SUDO_USER, use /root
-		HOME_DIR="/root"
-	fi
-
-	echo "$HOME_DIR"
 }
 
 function initialCheck() {
@@ -252,54 +231,64 @@ function installAmneziaWG() {
 	# Run setup questions first
 	installQuestions
 
-	# Check if binaries are already installed
-	if [ -f "/usr/bin/amneziawg-go" ] && command -v awg &> /dev/null; then
-		INSTALL_BUILD_DEPS=false
-	else
+	# Check if amneziawg-go binary already exists
+	AMNEZIAWG_GO_EXISTS=false
+	if [ -f "/usr/bin/amneziawg-go" ] || [ -f "/usr/local/bin/amneziawg-go" ]; then
+		AMNEZIAWG_GO_EXISTS=true
+	fi
+
+	# Check if awg tools are already installed
+	AWG_TOOLS_EXISTS=false
+	if command -v awg &> /dev/null; then
+		AWG_TOOLS_EXISTS=true
+	fi
+
+	# Determine if we need to install build dependencies
+	INSTALL_BUILD_DEPS=false
+	if [ "$AMNEZIAWG_GO_EXISTS" = false ] || [ "$AWG_TOOLS_EXISTS" = false ]; then
 		INSTALL_BUILD_DEPS=true
 	fi
 
 	# Install dependencies
 	if [[ ${OS} == 'ubuntu' ]]; then
 		apt update
+		apt install -y qrencode iptables
 		if [ "$INSTALL_BUILD_DEPS" = true ]; then
-			apt install -y qrencode iptables git g++ gcc make golang
-		else
-			apt install -y qrencode iptables
+			apt install -y git g++ gcc make golang
 		fi
 	elif [[ ${OS} == 'debian' ]]; then
 		apt update
+		apt install -y qrencode iptables
 		if [ "$INSTALL_BUILD_DEPS" = true ]; then
-			apt install -y qrencode iptables git g++ gcc make golang
-		else
-			apt install -y qrencode iptables
+			apt install -y git g++ gcc make golang
 		fi
 	elif [[ ${OS} == 'fedora' ]]; then
+		dnf install -y qrencode iptables
 		if [ "$INSTALL_BUILD_DEPS" = true ]; then
-			dnf install -y qrencode iptables git g++ gcc make golang
-		else
-			dnf install -y qrencode iptables
+			dnf install -y git g++ gcc make golang
 		fi
 	elif [[ ${OS} == 'centos' ]] || [[ ${OS} == 'almalinux' ]] || [[ ${OS} == 'rocky' ]]; then
 		dnf install -y epel-release
+		dnf install -y qrencode iptables
 		if [ "$INSTALL_BUILD_DEPS" = true ]; then
-			dnf install -y qrencode iptables git g++ gcc make golang
-		else
-			dnf install -y qrencode iptables
+			dnf install -y git g++ gcc make golang
 		fi
 	fi
 
+	# Verify Go is installed if we need build dependencies
 	if [ "$INSTALL_BUILD_DEPS" = true ]; then
-		# Check if go is installed
 		if ! command -v go &> /dev/null; then
 			echo "Go is not installed. Aborting."
 			exit 1
 		fi
 	fi
 
-	# Check if amneziawg-go userspace binary is in /usr/bin
+	# Ensure configs directory exists
+	ensureConfigsDir
+
+	# Build and install amneziawg-go if not found
 	# This is the userspace Go implementation, NOT a kernel module
-	if [ ! -f "/usr/bin/amneziawg-go" ]; then
+	if [ "$AMNEZIAWG_GO_EXISTS" = false ]; then
 		echo "amneziawg-go userspace implementation not found. Building from source..."
 		git clone https://github.com/amnezia-vpn/amneziawg-go.git
 		cd amneziawg-go
@@ -309,8 +298,8 @@ function installAmneziaWG() {
 		rm -rf amneziawg-go
 	fi
 
-	# Check if awg tools are installed (command line utilities)
-	if ! command -v awg &> /dev/null; then
+	# Build and install awg tools if not found
+	if [ "$AWG_TOOLS_EXISTS" = false ]; then
 		echo "awg tools not found. Building from source..."
 		git clone https://github.com/amnezia-vpn/amneziawg-tools.git
 		cd amneziawg-tools/src
@@ -483,8 +472,6 @@ function newClient() {
 	CLIENT_PUB_KEY=$(echo "${CLIENT_PRIV_KEY}" | awg pubkey)
 	CLIENT_PRE_SHARED_KEY=$(awg genpsk)
 
-	HOME_DIR=$(getHomeDirForClient "${CLIENT_NAME}")
-
 	# Create client file and add the server as a peer
 	echo "[Interface]
 PrivateKey = ${CLIENT_PRIV_KEY}
@@ -504,7 +491,7 @@ H4 = ${SERVER_AWG_H4}
 PublicKey = ${SERVER_PUB_KEY}
 PresharedKey = ${CLIENT_PRE_SHARED_KEY}
 Endpoint = ${ENDPOINT}
-AllowedIPs = ${ALLOWED_IPS}" >"${HOME_DIR}/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf"
+AllowedIPs = ${ALLOWED_IPS}" >"./configs/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf"
 
 	# Add the client as a peer to the server
 	echo -e "\n### Client ${CLIENT_NAME}
@@ -518,11 +505,11 @@ AllowedIPs = ${CLIENT_AWG_IPV4}/32,${CLIENT_AWG_IPV6}/128" >>"${SERVER_AWG_CONF}
 	# Generate QR code if qrencode is installed
 	if command -v qrencode &>/dev/null; then
 		echo -e "${GREEN}\nHere is your client config file as a QR Code:\n${NC}"
-		qrencode -t ansiutf8 -l L <"${HOME_DIR}/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf"
+		qrencode -t ansiutf8 -l L <"./configs/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf"
 		echo ""
 	fi
 
-	echo -e "${GREEN}Your client config file is in ${HOME_DIR}/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf${NC}"
+	echo -e "${GREEN}Your client config file is in ./configs/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf${NC}"
 }
 
 function listClients() {
@@ -562,8 +549,7 @@ function revokeClient() {
 	sed -i "/^### Client ${CLIENT_NAME}\$/,/^$/d" "${SERVER_AWG_CONF}"
 
 	# remove generated client file
-	HOME_DIR=$(getHomeDirForClient "${CLIENT_NAME}")
-	rm -f "${HOME_DIR}/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf"
+	rm -f "./configs/${SERVER_AWG_NIC}-client-${CLIENT_NAME}.conf"
 
 	# restart AmneziaWG to apply changes
 	awg syncconf "${SERVER_AWG_NIC}" <(awg-quick strip "${SERVER_AWG_NIC}")
